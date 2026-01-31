@@ -5,8 +5,7 @@ Point d'entrée principal de l'API.
 
 import logging
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
-from typing import Optional, Set
+from datetime import UTC, datetime
 
 from fastapi import Depends, FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
@@ -15,14 +14,15 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.config import settings
-from app.db import Base, SessionLocal, engine, get_db, init_db
+from app.db import get_db, init_db
 from app.kpi import compute_kpi, get_attack_summary, recent_sessions
-from app.models import Event, Session as SessionModel
-from app.services.geoip import geoip_service
-from app.services.classifier import classifier
-from app.services.scorer import scorer
+from app.models import Event
+from app.models import Session as SessionModel
 from app.services.bot_detector import bot_detector
+from app.services.classifier import classifier
+from app.services.geoip import geoip_service
 from app.services.mitre import mitre_mapper
+from app.services.scorer import scorer
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Logging
@@ -41,7 +41,7 @@ logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(_app: FastAPI):
     """Gestion du cycle de vie de l'application."""
     # Startup
     logger.info(f"Starting {settings.APP_NAME} v{settings.APP_VERSION}")
@@ -89,19 +89,19 @@ class OtoriEventIn(BaseModel):
     timestamp: str
     sensor: str
     honeypot_type: str
-    session_id: Optional[str] = None
+    session_id: str | None = None
 
-    src_ip: Optional[str] = None
-    src_port: Optional[int] = None
-    dst_ip: Optional[str] = None
-    dst_port: Optional[int] = None
-    protocol: Optional[str] = None
+    src_ip: str | None = None
+    src_port: int | None = None
+    dst_ip: str | None = None
+    dst_port: int | None = None
+    protocol: str | None = None
 
     event_type: str
-    username: Optional[str] = None
-    password: Optional[str] = None
-    command: Optional[str] = None
-    duration_sec: Optional[float] = None
+    username: str | None = None
+    password: str | None = None
+    command: str | None = None
+    duration_sec: float | None = None
 
 
 class HealthResponse(BaseModel):
@@ -124,7 +124,7 @@ class WSManager:
     """Gestionnaire de connexions WebSocket."""
 
     def __init__(self) -> None:
-        self.clients: Set[WebSocket] = set()
+        self.clients: set[WebSocket] = set()
 
     async def connect(self, ws: WebSocket) -> None:
         """Accepte une nouvelle connexion WebSocket."""
@@ -205,9 +205,9 @@ async def ingest(event: OtoriEventIn, db: Session = Depends(get_db)) -> dict:
     # Convertir timestamp ISO -> epoch seconds
     try:
         ts = event.timestamp.replace("Z", "+00:00")
-        e.ts_epoch = datetime.fromisoformat(ts).replace(tzinfo=timezone.utc).timestamp()
+        e.ts_epoch = datetime.fromisoformat(ts).replace(tzinfo=UTC).timestamp()
     except Exception:
-        e.ts_epoch = datetime.now(timezone.utc).timestamp()
+        e.ts_epoch = datetime.now(UTC).timestamp()
 
     # ═══════════════════════════════════════════════════════════════════════════
     # Enrichissement GeoIP
@@ -245,11 +245,13 @@ async def ingest(event: OtoriEventIn, db: Session = Depends(get_db)) -> dict:
     kpi = compute_kpi(db)
     recent = recent_sessions(db)
 
-    await ws_manager.broadcast({
-        "type": "update",
-        "kpi": kpi,
-        "recent": recent,
-    })
+    await ws_manager.broadcast(
+        {
+            "type": "update",
+            "kpi": kpi,
+            "recent": recent,
+        }
+    )
 
     return {"ok": True}
 
@@ -258,9 +260,7 @@ def _update_session(db: Session, event: OtoriEventIn, e: Event) -> None:
     """Met à jour ou crée la session agrégée."""
     try:
         # Chercher la session existante
-        session = db.query(SessionModel).filter(
-            SessionModel.session_id == event.session_id
-        ).first()
+        session = db.query(SessionModel).filter(SessionModel.session_id == event.session_id).first()
 
         if not session:
             # Créer une nouvelle session
@@ -437,17 +437,13 @@ def get_session_detail(
     db: Session = Depends(get_db),
 ) -> dict:
     """Récupère les détails d'une session spécifique."""
-    session = db.query(SessionModel).filter(
-        SessionModel.session_id == session_id
-    ).first()
+    session = db.query(SessionModel).filter(SessionModel.session_id == session_id).first()
 
     if not session:
         return {"error": "Session not found"}
 
     # Récupérer les événements de la session
-    events = db.query(Event).filter(
-        Event.session_id == session_id
-    ).order_by(Event.ts_epoch).all()
+    events = db.query(Event).filter(Event.session_id == session_id).order_by(Event.ts_epoch).all()
 
     return {
         "session": {
@@ -498,16 +494,14 @@ def get_session_detail(
 
 @app.get("/mitre/techniques", tags=["MITRE"])
 def get_mitre_techniques(
-    hours: int = 24,
+    _hours: int = 24,
     db: Session = Depends(get_db),
 ) -> dict:
     """Récupère les techniques MITRE observées."""
     from collections import Counter
 
     # Récupérer toutes les techniques des événements
-    events = db.query(Event.mitre_techniques).filter(
-        Event.mitre_techniques.isnot(None)
-    ).all()
+    events = db.query(Event.mitre_techniques).filter(Event.mitre_techniques.isnot(None)).all()
 
     technique_counter: Counter = Counter()
     for (techniques,) in events:
@@ -519,21 +513,25 @@ def get_mitre_techniques(
     for tid, count in technique_counter.most_common(20):
         technique = mitre_mapper.get_technique(tid)
         if technique:
-            results.append({
-                "technique_id": tid,
-                "technique_name": technique.technique_name,
-                "tactic": technique.tactic,
-                "count": count,
-                "url": technique.url,
-            })
+            results.append(
+                {
+                    "technique_id": tid,
+                    "technique_name": technique.technique_name,
+                    "tactic": technique.tactic,
+                    "count": count,
+                    "url": technique.url,
+                }
+            )
         else:
-            results.append({
-                "technique_id": tid,
-                "technique_name": "Unknown",
-                "tactic": "Unknown",
-                "count": count,
-                "url": None,
-            })
+            results.append(
+                {
+                    "technique_id": tid,
+                    "technique_name": "Unknown",
+                    "tactic": "Unknown",
+                    "count": count,
+                    "url": None,
+                }
+            )
 
     return {
         "techniques": results,

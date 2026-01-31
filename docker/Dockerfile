@@ -12,12 +12,14 @@ FROM python:3.12-slim AS builder
 WORKDIR /build
 
 # Installer les dépendances système pour la compilation
+# hadolint ignore=DL3008
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Installer uv (gestionnaire de packages Python ultra-rapide)
+# hadolint ignore=DL3013
 RUN pip install --no-cache-dir uv
 
 # Copier les fichiers de dépendances
@@ -51,6 +53,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR $APP_HOME
 
 # Installer uniquement les dépendances runtime
+# hadolint ignore=DL3008
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq5 \
     curl \

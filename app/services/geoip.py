@@ -6,7 +6,6 @@ Utilise MaxMind GeoLite2 pour la localisation géographique.
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 from app.config import settings
 
@@ -17,13 +16,13 @@ logger = logging.getLogger(__name__)
 class GeoInfo:
     """Informations géographiques d'une IP."""
 
-    country_code: Optional[str] = None
-    country_name: Optional[str] = None
-    city: Optional[str] = None
-    latitude: Optional[float] = None
-    longitude: Optional[float] = None
-    asn: Optional[int] = None
-    asn_org: Optional[str] = None
+    country_code: str | None = None
+    country_name: str | None = None
+    city: str | None = None
+    latitude: float | None = None
+    longitude: float | None = None
+    asn: int | None = None
+    asn_org: str | None = None
     is_anonymous_proxy: bool = False
     is_satellite_provider: bool = False
 
@@ -116,9 +115,7 @@ class GeoIPService:
 
             # Traits spéciaux
             if hasattr(response, "traits"):
-                info.is_anonymous_proxy = getattr(
-                    response.traits, "is_anonymous_proxy", False
-                )
+                info.is_anonymous_proxy = getattr(response.traits, "is_anonymous_proxy", False)
                 info.is_satellite_provider = getattr(
                     response.traits, "is_satellite_provider", False
                 )

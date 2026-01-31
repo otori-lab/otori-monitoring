@@ -5,7 +5,6 @@ Service de scoring des sessions.
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Optional
 
 from app.services.classifier import (
     CommandAnalysis,
@@ -133,7 +132,7 @@ class SessionScorer:
         commands: list[str],
         login_success: bool = False,
         login_attempts: int = 0,
-        duration_sec: Optional[float] = None,
+        duration_sec: float | None = None,
     ) -> SessionScore:
         """
         Calcule le score de dangerosité d'une session.
@@ -188,21 +187,26 @@ class SessionScorer:
         self._add_behavioral_factors(score, login_success, login_attempts, duration_sec)
 
         # Calculer le score total
-        score.total_score = min(100, sum([
-            score.command_score,
-            score.credential_score,
-            score.persistence_score,
-            score.evasion_score,
-            score.lateral_score,
-            score.exfil_score,
-            score.impact_score,
-        ]))
+        score.total_score = min(
+            100,
+            sum(
+                [
+                    score.command_score,
+                    score.credential_score,
+                    score.persistence_score,
+                    score.evasion_score,
+                    score.lateral_score,
+                    score.exfil_score,
+                    score.impact_score,
+                ]
+            ),
+        )
 
         # Déterminer le niveau de danger
         score.danger_level = self._determine_danger_level(score)
 
         # MITRE techniques
-        score.mitre_techniques = sorted(list(all_mitre))
+        score.mitre_techniques = sorted(all_mitre)
 
         # Générer le résumé
         score.summary = self._generate_summary(score)
@@ -248,7 +252,7 @@ class SessionScorer:
         score: SessionScore,
         login_success: bool,
         login_attempts: int,
-        duration_sec: Optional[float],
+        duration_sec: float | None,
     ) -> None:
         """Ajoute des points basés sur le comportement."""
         # Brute force détecté

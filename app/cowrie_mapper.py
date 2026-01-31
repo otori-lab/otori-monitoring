@@ -1,6 +1,9 @@
-from typing import Any, Dict, Optional
+from typing import Any
 
-def map_cowrie_to_otori(c: Dict[str, Any], sensor_default: str = "otori-local") -> Optional[Dict[str, Any]]:
+
+def map_cowrie_to_otori(
+    c: dict[str, Any], sensor_default: str = "otori-local"
+) -> dict[str, Any] | None:
     """
     Transforme un event Cowrie (raw JSON) en event OTORI (format unifié).
     Retourne None si l'event n'est pas utile en V1.
@@ -56,7 +59,7 @@ def map_cowrie_to_otori(c: Dict[str, Any], sensor_default: str = "otori-local") 
         username = password = command = None
         try:
             duration = float(c.get("duration")) if c.get("duration") is not None else None
-        except:
+        except (TypeError, ValueError):
             duration = None
 
     else:
@@ -68,13 +71,11 @@ def map_cowrie_to_otori(c: Dict[str, Any], sensor_default: str = "otori-local") 
         "sensor": sensor,
         "honeypot_type": "classic",
         "session_id": session_id,
-
         "src_ip": src_ip,
         "src_port": int(src_port) if src_port is not None else None,
         "dst_ip": dst_ip,
         "dst_port": int(dst_port) if dst_port is not None else None,
         "protocol": protocol,
-
         "event_type": event_type,
         "username": username,
         "password": password,

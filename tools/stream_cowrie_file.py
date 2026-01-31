@@ -1,7 +1,8 @@
 import json
-import time
 import os
 import sys
+import time
+
 import requests
 
 # Cross-platform: msvcrt is Windows-only
@@ -15,24 +16,27 @@ from app.cowrie_mapper import map_cowrie_to_otori
 API = "http://127.0.0.1:8000/ingest"
 FILE = os.path.join("data", "cowrie.json")
 
+
 def post_event(e: dict):
     r = requests.post(API, json=e, timeout=3)
     if r.status_code != 200:
         raise RuntimeError(f"POST {API} -> {r.status_code} {r.text[:200]}")
+
 
 def open_shared_read(path: str):
     """
     Ouvre le fichier en lecture avec partage (Windows-friendly),
     pour éviter de bloquer l'écriture par VS Code / autres.
     """
-    f = open(path, "r", encoding="utf-8", errors="ignore")
+    f = open(path, encoding="utf-8", errors="ignore")  # noqa: SIM115
     # Windows: force text mode for shared access
     if msvcrt is not None:
-        try:
+        import contextlib
+
+        with contextlib.suppress(Exception):
             msvcrt.setmode(f.fileno(), os.O_TEXT)
-        except Exception:
-            pass
     return f
+
 
 def stream_bootstrap_and_follow(path: str):
     """
@@ -65,10 +69,10 @@ def stream_bootstrap_and_follow(path: str):
 
         # fichier remplacé / truncaté
         if size < last_size:
-            try:
+            import contextlib
+
+            with contextlib.suppress(OSError):
                 f.close()
-            except:
-                pass
             f = open_shared_read(path)
             # après remplacement, on lit depuis le début (au cas où)
             f.seek(0, os.SEEK_SET)
@@ -87,6 +91,7 @@ def stream_bootstrap_and_follow(path: str):
             continue
 
         yield line
+
 
 def main():
     """Entry point for `otori-stream` command."""

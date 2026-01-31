@@ -2,11 +2,11 @@
 Otori Monitoring - Services d'analyse.
 """
 
-from app.services.geoip import GeoIPService, geoip_service
-from app.services.classifier import CommandClassifier, classifier
-from app.services.scorer import SessionScorer, scorer
 from app.services.bot_detector import BotDetector, bot_detector
+from app.services.classifier import CommandClassifier, classifier
+from app.services.geoip import GeoIPService, geoip_service
 from app.services.mitre import MitreMapper, mitre_mapper
+from app.services.scorer import SessionScorer, scorer
 
 __all__ = [
     "GeoIPService",

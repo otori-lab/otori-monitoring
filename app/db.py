@@ -3,10 +3,10 @@ Configuration de la base de données.
 Supporte SQLite (dev) et PostgreSQL (production).
 """
 
+from collections.abc import Generator
 from contextlib import contextmanager
-from typing import Generator
 
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, declarative_base, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -57,6 +57,7 @@ Base = declarative_base()
 # Dependency injection pour FastAPI
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 def get_db() -> Generator[Session, None, None]:
     """
     Dépendance FastAPI pour obtenir une session DB.
@@ -103,6 +104,7 @@ def get_db_context() -> Generator[Session, None, None]:
 # Initialisation de la base
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 def init_db() -> None:
     """
     Crée toutes les tables définies dans les modèles.
@@ -121,6 +123,7 @@ def drop_db() -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 # Health check
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 def check_db_connection() -> bool:
     """

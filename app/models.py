@@ -2,10 +2,10 @@
 Modèles SQLAlchemy pour Otori Monitoring.
 """
 
-from sqlalchemy import Boolean, Column, Float, Integer, String, Text
-from sqlalchemy.dialects.postgresql import ARRAY
-from sqlalchemy.types import TypeDecorator
 import json
+
+from sqlalchemy import Boolean, Column, Float, Integer, String, Text
+from sqlalchemy.types import TypeDecorator
 
 from app.db import Base
 
@@ -16,12 +16,12 @@ class JSONEncodedList(TypeDecorator):
     impl = Text
     cache_ok = True
 
-    def process_bind_param(self, value, dialect):
+    def process_bind_param(self, value, _dialect):
         if value is not None:
             return json.dumps(value)
         return "[]"
 
-    def process_result_value(self, value, dialect):
+    def process_result_value(self, value, _dialect):
         if value is not None:
             return json.loads(value)
         return []

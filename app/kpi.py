@@ -4,8 +4,7 @@ Fournit des statistiques détaillées et analyses avancées.
 """
 
 from collections import Counter
-from datetime import datetime, timedelta, timezone
-from typing import Optional
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import distinct, func
 from sqlalchemy.orm import Session as DBSession
@@ -15,7 +14,7 @@ from app.models import Event, Session
 
 def _since_epoch(hours: int = 24) -> float:
     """Calcule le timestamp epoch depuis X heures."""
-    dt = datetime.now(timezone.utc) - timedelta(hours=hours)
+    dt = datetime.now(UTC) - timedelta(hours=hours)
     return dt.timestamp()
 
 
@@ -112,9 +111,7 @@ def _compute_base_kpis(db: DBSession, since: float) -> dict:
     )
 
     # Commands per session
-    cmds_per_session = (
-        round(total_commands / total_sessions, 1) if total_sessions else 0.0
-    )
+    cmds_per_session = round(total_commands / total_sessions, 1) if total_sessions else 0.0
 
     # Login attempts
     login_success = (
@@ -134,9 +131,7 @@ def _compute_base_kpis(db: DBSession, since: float) -> dict:
     )
 
     total_logins = login_success + login_failed
-    login_success_rate = (
-        round((login_success / total_logins) * 100, 1) if total_logins else 0.0
-    )
+    login_success_rate = round((login_success / total_logins) * 100, 1) if total_logins else 0.0
 
     # Unique usernames tried
     unique_usernames = (
@@ -201,9 +196,7 @@ def _compute_geo_kpis(db: DBSession, since: float) -> dict:
         .limit(10)
         .all()
     )
-    top_countries = [
-        {"code": c, "name": n or c, "sessions": s} for c, n, s in top_countries
-    ]
+    top_countries = [{"code": c, "name": n or c, "sessions": s} for c, n, s in top_countries]
 
     # Top ASN organizations
     top_asn = (
@@ -323,14 +316,10 @@ def _compute_session_kpis(db: DBSession, since: float) -> dict:
             .group_by(Session.danger_level)
             .all()
         )
-        danger_distribution = [
-            {"level": level, "count": cnt} for level, cnt in danger_dist
-        ]
+        danger_distribution = [{"level": level, "count": cnt} for level, cnt in danger_dist]
 
         # Compteurs par danger
-        sessions_critical = sum(
-            cnt for level, cnt in danger_dist if level == "critical"
-        )
+        sessions_critical = sum(cnt for level, cnt in danger_dist if level == "critical")
         sessions_high = sum(cnt for level, cnt in danger_dist if level == "high")
         sessions_medium = sum(cnt for level, cnt in danger_dist if level == "medium")
 
@@ -344,9 +333,7 @@ def _compute_session_kpis(db: DBSession, since: float) -> dict:
             .group_by(Session.attacker_type)
             .all()
         )
-        attacker_distribution = [
-            {"type": t, "count": cnt} for t, cnt in attacker_dist
-        ]
+        attacker_distribution = [{"type": t, "count": cnt} for t, cnt in attacker_dist]
 
         # Bot ratio
         total_typed = sum(cnt for _, cnt in attacker_dist)
@@ -357,7 +344,7 @@ def _compute_session_kpis(db: DBSession, since: float) -> dict:
         sessions_with_persistence = (
             db.query(func.count(Session.id))
             .filter(Session.start_time >= since)
-            .filter(Session.has_persistence == True)
+            .filter(Session.has_persistence.is_(True))
             .scalar()
             or 0
         )
@@ -366,16 +353,14 @@ def _compute_session_kpis(db: DBSession, since: float) -> dict:
         sessions_with_exfil = (
             db.query(func.count(Session.id))
             .filter(Session.start_time >= since)
-            .filter(Session.has_exfiltration == True)
+            .filter(Session.has_exfiltration.is_(True))
             .scalar()
             or 0
         )
 
         # Average danger score
         avg_danger = (
-            db.query(func.avg(Session.danger_score))
-            .filter(Session.start_time >= since)
-            .scalar()
+            db.query(func.avg(Session.danger_score)).filter(Session.start_time >= since).scalar()
         )
         avg_danger_score = round(float(avg_danger), 1) if avg_danger else 0.0
 
@@ -394,8 +379,7 @@ def _compute_session_kpis(db: DBSession, since: float) -> dict:
                 technique_counter.update(techniques)
 
         top_mitre_techniques = [
-            {"technique": t, "count": c}
-            for t, c in technique_counter.most_common(10)
+            {"technique": t, "count": c} for t, c in technique_counter.most_common(10)
         ]
 
         return {
@@ -524,11 +508,9 @@ def _compute_timelines(db: DBSession, hours: int, since: float) -> dict:
     }
 
 
-def _get_timeline(
-    db: DBSession, hours: int, since: float, event_type: str
-) -> list[dict]:
+def _get_timeline(db: DBSession, hours: int, since: float, event_type: str) -> list[dict]:
     """Génère une timeline horaire."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     # Build empty timeline
     timeline = {}
@@ -550,7 +532,7 @@ def _get_timeline(
     # Count per hour
     for (ts,) in events:
         if ts:
-            dt = datetime.fromtimestamp(ts, tz=timezone.utc)
+            dt = datetime.fromtimestamp(ts, tz=UTC)
             hour_key = dt.strftime("%Y-%m-%d %H:00")
             if hour_key in timeline:
                 timeline[hour_key]["count"] += 1
@@ -612,9 +594,7 @@ def recent_sessions(db: DBSession, limit: int = 10, hours: int = 24) -> list[dic
     return _recent_sessions_from_events(db, limit, since)
 
 
-def _recent_sessions_from_events(
-    db: DBSession, limit: int, since: float
-) -> list[dict]:
+def _recent_sessions_from_events(db: DBSession, limit: int, since: float) -> list[dict]:
     """Construit les sessions récentes depuis la table Event."""
     # Get recent sessions by last activity
     sub = (
@@ -625,10 +605,7 @@ def _recent_sessions_from_events(
     )
 
     rows = (
-        db.query(sub.c.session_id, sub.c.last_ts)
-        .order_by(sub.c.last_ts.desc())
-        .limit(limit)
-        .all()
+        db.query(sub.c.session_id, sub.c.last_ts).order_by(sub.c.last_ts.desc()).limit(limit).all()
     )
 
     if not rows:
@@ -739,13 +716,9 @@ def get_attack_summary(db: DBSession, hours: int = 24) -> dict:
             "commands_executed": kpis["total_commands"],
             "bot_percentage": kpis.get("bot_ratio", 0),
         },
-        "top_threat": (
-            kpis["top_countries"][0] if kpis.get("top_countries") else None
-        ),
+        "top_threat": (kpis["top_countries"][0] if kpis.get("top_countries") else None),
         "most_dangerous_command": (
-            kpis["top_dangerous_commands"][0]
-            if kpis.get("top_dangerous_commands")
-            else None
+            kpis["top_dangerous_commands"][0] if kpis.get("top_dangerous_commands") else None
         ),
         "period_hours": hours,
     }

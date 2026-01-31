@@ -6,7 +6,6 @@ Analyse les sessions pour déterminer si l'attaquant est un bot ou un humain.
 import re
 from dataclasses import dataclass
 from enum import Enum
-from typing import Optional
 
 
 class AttackerType(str, Enum):
@@ -36,8 +35,8 @@ class BotAnalysis:
     copy_paste_detected: bool = False
 
     # Détails
-    avg_command_interval: Optional[float] = None
-    command_variance: Optional[float] = None
+    avg_command_interval: float | None = None
+    command_variance: float | None = None
     unique_command_ratio: float = 0.0
 
     # Signatures détectées
@@ -76,19 +75,15 @@ class BotDetector:
         (r"cd\s+/tmp.*busybox", "mirai"),
         (r"cat\s+/proc/mounts.*busybox", "mirai"),
         (r"\./\w+\s+\w+\.[\w\.]+", "mirai-dropper"),
-
         # Autres botnets
         (r"uname\s+-a.*cat\s+/proc/cpuinfo", "botnet-recon"),
         (r"(wget|curl).*\|\s*(sh|bash)", "dropper"),
         (r"echo.*>>\s*/etc/crontab", "cron-persistence"),
-
         # Brute-force tools
         (r"^root$|^admin$|^password$|^123456$", "common-creds"),
-
         # Crypto miners
         (r"xmrig|cpuminer|minerd", "cryptominer"),
         (r"stratum\+tcp", "mining-pool"),
-
         # Common attack scripts
         (r"rm\s+-rf\s+/tmp/\*.*wget", "cleanup-download"),
         (r"chmod\s+777.*\./", "chmod-execute"),
@@ -114,10 +109,10 @@ class BotDetector:
     def analyze(
         self,
         commands: list[str],
-        timestamps: Optional[list[float]] = None,
+        timestamps: list[float] | None = None,
         login_attempts: int = 0,
-        usernames: Optional[list[str]] = None,
-        passwords: Optional[list[str]] = None,
+        usernames: list[str] | None = None,
+        passwords: list[str] | None = None,
     ) -> BotAnalysis:
         """
         Analyse une session pour détecter si c'est un bot.
@@ -165,9 +160,7 @@ class BotDetector:
 
         return analysis
 
-    def _check_known_signatures(
-        self, analysis: BotAnalysis, commands: list[str]
-    ) -> None:
+    def _check_known_signatures(self, analysis: BotAnalysis, commands: list[str]) -> None:
         """Vérifie les signatures de bots connues."""
         full_text = " ".join(commands)
 
@@ -177,9 +170,7 @@ class BotDetector:
                 analysis.signatures_matched.append(name)
                 analysis.bot_score += 25
 
-    def _analyze_timing(
-        self, analysis: BotAnalysis, timestamps: list[float]
-    ) -> None:
+    def _analyze_timing(self, analysis: BotAnalysis, timestamps: list[float]) -> None:
         """Analyse le timing entre les commandes."""
         intervals = []
         for i in range(1, len(timestamps)):
@@ -212,9 +203,7 @@ class BotDetector:
         if 2.0 <= avg_interval <= 10.0 and (analysis.command_variance or 0) > 2:
             analysis.human_score += 20
 
-    def _analyze_command_patterns(
-        self, analysis: BotAnalysis, commands: list[str]
-    ) -> None:
+    def _analyze_command_patterns(self, analysis: BotAnalysis, commands: list[str]) -> None:
         """Analyse les patterns de commandes."""
         # Ratio de commandes uniques
         unique_commands = set(commands)
@@ -260,8 +249,16 @@ class BotDetector:
         # Credentials communs = bot probable
         common_users = {"root", "admin", "user", "test", "guest", "ubuntu", "pi"}
         common_passwords = {
-            "123456", "password", "admin", "root", "12345678",
-            "qwerty", "abc123", "111111", "123123", "admin123",
+            "123456",
+            "password",
+            "admin",
+            "root",
+            "12345678",
+            "qwerty",
+            "abc123",
+            "111111",
+            "123123",
+            "admin123",
         }
 
         user_matches = sum(1 for u in usernames if u.lower() in common_users)
@@ -274,9 +271,7 @@ class BotDetector:
         if len(set(usernames)) < len(usernames) * 0.3:
             analysis.bot_score += 15
 
-    def _analyze_login_attempts(
-        self, analysis: BotAnalysis, login_attempts: int
-    ) -> None:
+    def _analyze_login_attempts(self, analysis: BotAnalysis, login_attempts: int) -> None:
         """Analyse le nombre de tentatives de login."""
         if login_attempts > 10:
             analysis.bot_score += min(30, login_attempts)
@@ -305,9 +300,7 @@ class BotDetector:
             analysis.attacker_type = AttackerType.UNKNOWN
             analysis.confidence = max(0.3, abs(diff) / 100)
 
-    def _contains_sequence(
-        self, commands: list[str], sequence: list[str]
-    ) -> bool:
+    def _contains_sequence(self, commands: list[str], sequence: list[str]) -> bool:
         """Vérifie si une séquence de commandes est présente."""
         seq_idx = 0
         for cmd in commands:
