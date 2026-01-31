@@ -122,6 +122,7 @@ jobs:
           context: .
           file: docker/Dockerfile
           push: false
+          load: true
           tags: otori-monitoring:test
           cache-from: type=gha
           cache-to: type=gha,mode=max
