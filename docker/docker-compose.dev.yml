@@ -1,0 +1,41 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# Otori Monitoring - Docker Compose (Development Override)
+# ═══════════════════════════════════════════════════════════════════════════════
+# Configuration pour le développement local avec hot-reload
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+#
+# Ou simplement avec SQLite local (sans Docker):
+#   uv run uvicorn app.main:app --reload
+# ═══════════════════════════════════════════════════════════════════════════════
+
+services:
+  api:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      # Utiliser le cache pour builds plus rapides
+      args:
+        BUILDKIT_INLINE_CACHE: 1
+
+    environment:
+      ENVIRONMENT: development
+      DEBUG: "true"
+      LOG_LEVEL: DEBUG
+
+    volumes:
+      # Mount du code source pour hot-reload
+      - ../app:/app/app:ro
+      - ../tools:/app/tools:ro
+
+    # Override de la commande pour hot-reload
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+
+    # Pas de health check strict en dev
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s

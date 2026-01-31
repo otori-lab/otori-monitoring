@@ -1,31 +1,42 @@
 import json
-import time
 import os
+import sys
+import time
+
 import requests
-import msvcrt
+
+# Cross-platform: msvcrt is Windows-only
+if sys.platform == "win32":
+    import msvcrt
+else:
+    msvcrt = None
 
 from app.cowrie_mapper import map_cowrie_to_otori
 
 API = "http://127.0.0.1:8000/ingest"
 FILE = os.path.join("data", "cowrie.json")
 
+
 def post_event(e: dict):
     r = requests.post(API, json=e, timeout=3)
     if r.status_code != 200:
         raise RuntimeError(f"POST {API} -> {r.status_code} {r.text[:200]}")
+
 
 def open_shared_read(path: str):
     """
     Ouvre le fichier en lecture avec partage (Windows-friendly),
     pour éviter de bloquer l'écriture par VS Code / autres.
     """
-    f = open(path, "r", encoding="utf-8", errors="ignore")
-    # sur Windows, ça force un mode "non-bloquant" (best effort)
-    try:
-        msvcrt.setmode(f.fileno(), os.O_TEXT)
-    except:
-        pass
+    f = open(path, encoding="utf-8", errors="ignore")  # noqa: SIM115
+    # Windows: force text mode for shared access
+    if msvcrt is not None:
+        import contextlib
+
+        with contextlib.suppress(Exception):
+            msvcrt.setmode(f.fileno(), os.O_TEXT)
     return f
+
 
 def stream_bootstrap_and_follow(path: str):
     """
@@ -58,10 +69,10 @@ def stream_bootstrap_and_follow(path: str):
 
         # fichier remplacé / truncaté
         if size < last_size:
-            try:
+            import contextlib
+
+            with contextlib.suppress(OSError):
                 f.close()
-            except:
-                pass
             f = open_shared_read(path)
             # après remplacement, on lit depuis le début (au cas où)
             f.seek(0, os.SEEK_SET)
@@ -81,7 +92,9 @@ def stream_bootstrap_and_follow(path: str):
 
         yield line
 
-if __name__ == "__main__":
+
+def main():
+    """Entry point for `otori-stream` command."""
     print("[stream] cwd :", os.getcwd())
     print("[stream] file:", os.path.abspath(FILE))
     print(f"[stream] BOOTSTRAP + LIVE -> {API}")
@@ -105,3 +118,7 @@ if __name__ == "__main__":
         except Exception as ex:
             print("[stream] POST failed:", ex)
             time.sleep(1)
+
+
+if __name__ == "__main__":
+    main()
