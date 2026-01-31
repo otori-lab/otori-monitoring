@@ -1,8 +1,14 @@
 import json
 import time
 import os
+import sys
 import requests
-import msvcrt
+
+# Cross-platform: msvcrt is Windows-only
+if sys.platform == "win32":
+    import msvcrt
+else:
+    msvcrt = None
 
 from app.cowrie_mapper import map_cowrie_to_otori
 
@@ -20,11 +26,12 @@ def open_shared_read(path: str):
     pour éviter de bloquer l'écriture par VS Code / autres.
     """
     f = open(path, "r", encoding="utf-8", errors="ignore")
-    # sur Windows, ça force un mode "non-bloquant" (best effort)
-    try:
-        msvcrt.setmode(f.fileno(), os.O_TEXT)
-    except:
-        pass
+    # Windows: force text mode for shared access
+    if msvcrt is not None:
+        try:
+            msvcrt.setmode(f.fileno(), os.O_TEXT)
+        except Exception:
+            pass
     return f
 
 def stream_bootstrap_and_follow(path: str):
@@ -81,7 +88,8 @@ def stream_bootstrap_and_follow(path: str):
 
         yield line
 
-if __name__ == "__main__":
+def main():
+    """Entry point for `otori-stream` command."""
     print("[stream] cwd :", os.getcwd())
     print("[stream] file:", os.path.abspath(FILE))
     print(f"[stream] BOOTSTRAP + LIVE -> {API}")
@@ -105,3 +113,7 @@ if __name__ == "__main__":
         except Exception as ex:
             print("[stream] POST failed:", ex)
             time.sleep(1)
+
+
+if __name__ == "__main__":
+    main()
