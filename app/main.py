@@ -215,9 +215,7 @@ def register_sensor(sensor: SensorRegisterIn, db: Session = Depends(get_db)) -> 
     """
     # Vérifier si déjà enregistré
     existing = (
-        db.query(Sensor)
-        .filter(Sensor.ip == sensor.ip, Sensor.hostname == sensor.hostname)
-        .first()
+        db.query(Sensor).filter(Sensor.ip == sensor.ip, Sensor.hostname == sensor.hostname).first()
     )
 
     if existing:
@@ -646,7 +644,6 @@ def search_command(
     db: Session = Depends(get_db),
 ) -> dict:
     """Recherche les IPs qui ont exécuté une commande spécifique."""
-    from sqlalchemy import func
 
     events = (
         db.query(Event)
@@ -867,11 +864,7 @@ def get_ip_full_details(
 
     # Get all events for this IP
     events = (
-        db.query(Event)
-        .filter(Event.src_ip == ip)
-        .order_by(Event.ts_epoch.desc())
-        .limit(200)
-        .all()
+        db.query(Event).filter(Event.src_ip == ip).order_by(Event.ts_epoch.desc()).limit(200).all()
     )
 
     # Aggregate commands
@@ -918,7 +911,7 @@ def get_ip_full_details(
             "total_commands": sum(1 for e in events if e.event_type == "command"),
             "total_auth_attempts": len(auth_events),
             "successful_logins": sum(1 for e in auth_events if e["event_type"] == "login_success"),
-            "unique_usernames": len(set(e["username"] for e in auth_events if e["username"])),
+            "unique_usernames": len({e["username"] for e in auth_events if e["username"]}),
             "avg_danger_score": (
                 round(sum(s.danger_score or 0 for s in sessions) / len(sessions), 1)
                 if sessions

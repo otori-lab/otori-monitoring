@@ -2,7 +2,6 @@
 Tests pour l'API Otori Monitoring.
 """
 
-import pytest
 from fastapi.testclient import TestClient
 
 

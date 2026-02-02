@@ -6,24 +6,24 @@ Générateur de logs Cowrie simulés pour les tests du dashboard.
 import json
 import random
 import uuid
-from datetime import datetime, timedelta, UTC
+from datetime import UTC, datetime, timedelta
 
 # IPs d'attaquants simulées (publiques fictives mais réalistes)
 ATTACKER_IPS = [
-    "185.220.101.42",   # Tor exit (DE)
-    "45.155.205.233",   # Russia
-    "103.75.119.45",    # China
+    "185.220.101.42",  # Tor exit (DE)
+    "45.155.205.233",  # Russia
+    "103.75.119.45",  # China
     "192.241.218.177",  # US scanner
-    "31.42.186.101",    # Netherlands
-    "89.248.167.131",   # Shodan
-    "71.6.135.131",     # Censys
+    "31.42.186.101",  # Netherlands
+    "89.248.167.131",  # Shodan
+    "71.6.135.131",  # Censys
     "162.142.125.217",  # Censys
-    "94.102.49.190",    # NL scanner
-    "51.79.146.255",    # OVH (FR)
-    "119.45.170.85",    # China
-    "200.54.218.12",    # Brazil
-    "14.63.170.91",     # South Korea
-    "41.77.145.22",     # South Africa
+    "94.102.49.190",  # NL scanner
+    "51.79.146.255",  # OVH (FR)
+    "119.45.170.85",  # China
+    "200.54.218.12",  # Brazil
+    "14.63.170.91",  # South Korea
+    "41.77.145.22",  # South Africa
 ]
 
 # Noms de sensors
@@ -163,10 +163,9 @@ def generate_events_for_session(
         return e
 
     # 1. Connection
-    events.append(make_event(
-        "cowrie.session.connect",
-        {"message": f"New connection: {src_ip}:{src_port}"}
-    ))
+    events.append(
+        make_event("cowrie.session.connect", {"message": f"New connection: {src_ip}:{src_port}"})
+    )
 
     # 2. Login attempts
     num_attempts = random.randint(1, 5)
@@ -174,18 +173,30 @@ def generate_events_for_session(
 
     for i in range(num_attempts):
         username, password = random.choice(CREDENTIALS)
-        is_last = (i == num_attempts - 1)
+        is_last = i == num_attempts - 1
 
         if is_last and success:
-            events.append(make_event(
-                "cowrie.login.success",
-                {"username": username, "password": password, "message": f"login attempt [{username}/{password}] succeeded"}
-            ))
+            events.append(
+                make_event(
+                    "cowrie.login.success",
+                    {
+                        "username": username,
+                        "password": password,
+                        "message": f"login attempt [{username}/{password}] succeeded",
+                    },
+                )
+            )
         else:
-            events.append(make_event(
-                "cowrie.login.failed",
-                {"username": username, "password": password, "message": f"login attempt [{username}/{password}] failed"}
-            ))
+            events.append(
+                make_event(
+                    "cowrie.login.failed",
+                    {
+                        "username": username,
+                        "password": password,
+                        "message": f"login attempt [{username}/{password}] failed",
+                    },
+                )
+            )
 
     # 3. Commands (only if login succeeded)
     if success:
@@ -195,33 +206,37 @@ def generate_events_for_session(
             commands = random.sample(RECON_COMMANDS, random.randint(4, 10))
         elif attack_type == "advanced":
             commands = (
-                random.sample(RECON_COMMANDS, 3) +
-                random.sample(PERSIST_COMMANDS, 2) +
-                random.sample(LATERAL_COMMANDS, 2) +
-                random.sample(EXFIL_COMMANDS, 1)
+                random.sample(RECON_COMMANDS, 3)
+                + random.sample(PERSIST_COMMANDS, 2)
+                + random.sample(LATERAL_COMMANDS, 2)
+                + random.sample(EXFIL_COMMANDS, 1)
             )
         elif attack_type == "destructive":
             commands = (
-                random.sample(RECON_COMMANDS, 2) +
-                random.sample(PERSIST_COMMANDS, 1) +
-                random.sample(IMPACT_COMMANDS, 2)
+                random.sample(RECON_COMMANDS, 2)
+                + random.sample(PERSIST_COMMANDS, 1)
+                + random.sample(IMPACT_COMMANDS, 2)
             )
         else:
             commands = random.sample(RECON_COMMANDS, 3)
 
         for cmd in commands:
             current_time += timedelta(seconds=random.uniform(2, 10))
-            events.append(make_event(
-                "cowrie.command.input",
-                {"input": cmd, "message": f"CMD: {cmd}"}
-            ))
+            events.append(
+                make_event("cowrie.command.input", {"input": cmd, "message": f"CMD: {cmd}"})
+            )
 
     # 4. Session close
     duration = (current_time - base_time).total_seconds()
-    events.append(make_event(
-        "cowrie.session.closed",
-        {"duration": f"{duration:.1f}", "message": f"Connection lost after {duration:.1f} seconds"}
-    ))
+    events.append(
+        make_event(
+            "cowrie.session.closed",
+            {
+                "duration": f"{duration:.1f}",
+                "message": f"Connection lost after {duration:.1f} seconds",
+            },
+        )
+    )
 
     return events
 
@@ -234,10 +249,10 @@ def generate_fake_logs(num_sessions: int = 50, hours_back: int = 24) -> list[dic
 
     # Distribution des types d'attaque
     attack_types = (
-        ["bot"] * 20 +          # 40% bots
-        ["human_recon"] * 15 +  # 30% recon humain
-        ["advanced"] * 10 +     # 20% avancé
-        ["destructive"] * 5     # 10% destructif
+        ["bot"] * 20  # 40% bots
+        + ["human_recon"] * 15  # 30% recon humain
+        + ["advanced"] * 10  # 20% avancé
+        + ["destructive"] * 5  # 10% destructif
     )
 
     base_time = datetime.now(UTC) - timedelta(hours=hours_back)
