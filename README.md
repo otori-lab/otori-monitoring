@@ -1,64 +1,72 @@
 # Otori Monitoring
 
-Dashboard de monitoring et analytics pour honeypots Otori.
+Plateforme de monitoring et analytics pour honeypots Otori. Projet de Fin d'Etudes (PFE) - ECE Paris 2025.
+
+## Features
+
+- Dashboard temps reel avec WebSocket
+- Geolocalisation des attaquants (MaxMind GeoIP)
+- Classification des commandes (100+ patterns)
+- Mapping MITRE ATT&CK (~70 techniques)
+- Detection de bots automatises
+- Scoring de menace (0-100)
+- Support multi-honeypots
 
 ## Quick Start
 
-### Développement local (SQLite)
+### Via otori-cli (recommande)
 
 ```bash
-# Installer les dépendances
-make install
+# Installer otori-cli
+git clone https://github.com/otori-lab/otori-cli.git
+cd otori-cli && make install
 
-# Lancer le serveur
-make run
+# Demarrer le monitoring
+otori monitoring start
 
-# Dans un autre terminal, lancer le streamer
-make stream
+# Dashboard disponible sur http://localhost:8000
 ```
 
-Accéder au dashboard : http://localhost:8000
-
-### Docker (PostgreSQL)
+### Via Docker Compose
 
 ```bash
-# Build et démarrer
-make docker-up
+cd docker
+docker compose up -d
 
-# Voir les logs
-make docker-logs
+# Dashboard : http://localhost:8000
+```
 
-# Arrêter
-make docker-down
+### Developpement local
+
+```bash
+# Installer les dependances
+make install
+
+# Lancer le serveur (SQLite)
+make run
+
+# Dashboard : http://localhost:8000
 ```
 
 ## Architecture
 
 ```
-┌──────────────┐    ┌──────────────┐    ┌──────────────┐
-│  PostgreSQL  │◄───│   FastAPI    │◄───│    Nginx     │
-│   (otori-db) │    │  (otori-api) │    │  (optional)  │
-└──────────────┘    └──────────────┘    └──────────────┘
-```
-
-## Structure
-
-```
-otori-monitoring/
-├── app/
-│   ├── config.py      # Configuration (env vars)
-│   ├── db.py          # Database connection
-│   ├── main.py        # FastAPI application
-│   ├── models.py      # SQLAlchemy models
-│   ├── kpi.py         # KPI calculations
-│   └── web/           # Frontend (HTML/CSS/JS)
-├── docker/
-│   ├── Dockerfile
-│   ├── docker-compose.yml
-│   └── nginx.conf
-├── tests/
-└── tools/
-    └── stream_cowrie_file.py
+┌─────────────────┐     ┌─────────────────┐
+│    Honeypot     │────▶│    Shipper      │
+│  (Cowrie/LLM)   │     │   (Sidecar)     │
+└─────────────────┘     └────────┬────────┘
+                                 │ POST /ingest
+                                 ▼
+┌─────────────────┐     ┌─────────────────┐
+│   PostgreSQL    │◀────│    FastAPI      │
+│   (otori-db)    │     │  (otori-api)    │
+└─────────────────┘     └────────┬────────┘
+                                 │
+                                 ▼
+                        ┌─────────────────┐
+                        │   Dashboard     │
+                        │  (SPA + Charts) │
+                        └─────────────────┘
 ```
 
 ## API Endpoints
@@ -67,38 +75,105 @@ otori-monitoring/
 |----------|--------|-------------|
 | `/` | GET | Dashboard HTML |
 | `/health` | GET | Health check |
-| `/ingest` | POST | Ingère un événement |
-| `/kpi` | GET | Récupère les KPIs |
-| `/sessions/recent` | GET | Sessions récentes |
-| `/ws` | WebSocket | Updates temps réel |
+| `/ingest` | POST | Ingestion d'evenements |
+| `/kpi` | GET | Metriques et KPIs |
+| `/sessions/recent` | GET | Sessions recentes |
+| `/ws` | WebSocket | Updates temps reel |
+
+## Pages du Dashboard
+
+1. **Overview** - KPIs globaux, timeline, authentifications
+2. **Geography** - Carte mondiale des attaques
+3. **Analytics** - Categories de commandes, severite, MITRE
+4. **Sessions** - Detail des sessions avec scoring
+
+## Services d'analyse
+
+### GeoIP (`app/services/geoip.py`)
+- Base MaxMind GeoLite2
+- Pays, ville, coordonnees GPS
+- ASN et ISP
+
+### Classifier (`app/services/classifier.py`)
+- 100+ patterns de commandes
+- 11 categories : recon, credential, download, execution, persistence, etc.
+
+### MITRE Mapper (`app/services/mitre.py`)
+- ~70 techniques ATT&CK
+- Mapping automatique des commandes
+
+### Scorer (`app/services/scorer.py`)
+- Score de menace 0-100
+- Niveaux : info, low, medium, high, critical
+
+### Bot Detector (`app/services/bot_detector.py`)
+- Detection par signatures
+- Analyse temporelle
+- Patterns de scan
 
 ## Configuration
 
-Variables d'environnement (voir `.env.example`) :
+Variables d'environnement :
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `DATABASE_URL` | `sqlite:///./otori.db` | URL de connexion DB |
+| `DATABASE_URL` | `sqlite:///./otori.db` | URL PostgreSQL ou SQLite |
 | `ENVIRONMENT` | `development` | Environnement |
-| `DEBUG` | `false` | Mode debug |
 | `LOG_LEVEL` | `INFO` | Niveau de log |
-| `GEOIP_ENABLED` | `true` | Activer GeoIP |
+| `GEOIP_ENABLED` | `true` | Activer la geolocalisation |
+| `ANALYTICS_ENABLED` | `true` | Activer les analytics avances |
+
+## Structure
+
+```
+otori-monitoring/
+├── app/
+│   ├── main.py           # FastAPI application
+│   ├── models.py         # SQLAlchemy models
+│   ├── db.py             # Database setup
+│   ├── config.py         # Configuration
+│   ├── kpi.py            # Calculs KPI
+│   ├── cowrie_mapper.py  # Mapping Cowrie -> Otori
+│   ├── services/         # Analytics services
+│   │   ├── geoip.py
+│   │   ├── classifier.py
+│   │   ├── scorer.py
+│   │   ├── bot_detector.py
+│   │   └── mitre.py
+│   └── web/              # Frontend
+│       ├── index.html
+│       ├── css/
+│       └── js/
+├── docker/
+│   ├── Dockerfile
+│   └── docker-compose.yml
+├── tests/
+└── tools/
+    └── stream_cowrie_file.py
+```
+
+## Reseau Docker
+
+Le monitoring utilise le reseau `otori-network` pour communiquer avec les honeypots :
+
+```bash
+# Cree automatiquement par otori-cli
+docker network create otori-network
+```
+
+Les honeypots deployes via `otori deploy` se connectent automatiquement a ce reseau.
 
 ## Commandes Make
 
 ```bash
-make help           # Affiche l'aide
-make install        # Installe les dépendances
-make dev            # Installe les dépendances dev
-make run            # Lance le serveur local
-make test           # Lance les tests
-make lint           # Vérifie le code
-make format         # Formate le code
-make docker-up      # Démarre Docker
-make docker-down    # Arrête Docker
-make docker-logs    # Affiche les logs
+make install      # Installer les dependances
+make run          # Lancer en local (SQLite)
+make test         # Lancer les tests
+make up           # Docker Compose up
+make down         # Docker Compose down
+make logs         # Voir les logs Docker
 ```
 
-## Licence
+## License
 
 MIT
