@@ -154,6 +154,23 @@ class Session(Base):
     bot_signatures = Column(JSONEncodedList, nullable=True)
 
 
+class Sensor(Base):
+    """Honeypot enregistré auprès du monitoring."""
+
+    __tablename__ = "sensors"
+
+    id = Column(Integer, primary_key=True, index=True)
+    sensor_id = Column(String, unique=True, index=True)  # Format: {uuid}-{ip}-{hostname}
+    uuid = Column(String, index=True)
+    hostname = Column(String)
+    ip = Column(String, index=True)
+    honeypot_type = Column(String, index=True)  # ia / classic
+    profile_name = Column(String, nullable=True)
+    token = Column(String)  # Pour auth future
+    registered_at = Column(Float, index=True)
+    last_seen = Column(Float, nullable=True)
+
+
 class AttackStats(Base):
     """Statistiques agrégées par période (pour KPIs rapides)."""
 

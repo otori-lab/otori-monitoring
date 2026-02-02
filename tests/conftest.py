@@ -3,8 +3,8 @@ Fixtures pytest pour les tests Otori Monitoring.
 """
 
 import os
-from datetime import datetime, timezone
-from typing import Generator
+from collections.abc import Generator
+from datetime import UTC, datetime
 
 import pytest
 from fastapi.testclient import TestClient
@@ -20,10 +20,10 @@ os.environ["GEOIP_ENABLED"] = "false"
 from app.db import Base, get_db
 from app.main import app
 
-
 # ═══════════════════════════════════════════════════════════════════════════════
 # Database Fixtures
 # ═══════════════════════════════════════════════════════════════════════════════
+
 
 @pytest.fixture(scope="function")
 def db_engine():
@@ -53,6 +53,7 @@ def db_session(db_engine) -> Generator[Session, None, None]:
 # Client Fixtures
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 @pytest.fixture(scope="function")
 def client(db_session: Session) -> Generator[TestClient, None, None]:
     """Crée un client de test avec une base de données isolée."""
@@ -75,10 +76,11 @@ def client(db_session: Session) -> Generator[TestClient, None, None]:
 # Sample Data Fixtures
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 @pytest.fixture
 def sample_event() -> dict:
     """Retourne un événement de test avec timestamp actuel."""
-    current_ts = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    current_ts = datetime.now(UTC).isoformat().replace("+00:00", "Z")
     return {
         "timestamp": current_ts,
         "sensor": "test-sensor",
@@ -100,7 +102,7 @@ def sample_event() -> dict:
 @pytest.fixture
 def sample_command_event() -> dict:
     """Retourne un événement commande de test avec timestamp actuel."""
-    current_ts = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    current_ts = datetime.now(UTC).isoformat().replace("+00:00", "Z")
     return {
         "timestamp": current_ts,
         "sensor": "test-sensor",

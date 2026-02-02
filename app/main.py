@@ -4,6 +4,8 @@ Point d'entrée principal de l'API.
 """
 
 import logging
+import secrets
+import uuid
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 
@@ -16,7 +18,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.db import get_db, init_db
 from app.kpi import compute_kpi, get_attack_summary, recent_sessions
-from app.models import Event
+from app.models import Event, Sensor
 from app.models import Session as SessionModel
 from app.services.bot_detector import bot_detector
 from app.services.classifier import classifier
@@ -76,6 +78,8 @@ app = FastAPI(
 
 # Mount static files
 app.mount("/static", StaticFiles(directory="app/web"), name="static")
+app.mount("/css", StaticFiles(directory="app/web/css"), name="css")
+app.mount("/js", StaticFiles(directory="app/web/js"), name="js")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -103,6 +107,14 @@ class OtoriEventIn(BaseModel):
     command: str | None = None
     duration_sec: float | None = None
 
+    # Optional geo data (if not provided, will be looked up via GeoIP)
+    country_code: str | None = None
+    country_name: str | None = None
+    city: str | None = None
+    latitude: float | None = None
+    longitude: float | None = None
+    asn_org: str | None = None
+
 
 class HealthResponse(BaseModel):
     """Réponse du health check."""
@@ -113,6 +125,22 @@ class HealthResponse(BaseModel):
     database: str
     geoip_enabled: bool
     analytics_enabled: bool
+
+
+class SensorRegisterIn(BaseModel):
+    """Schéma d'entrée pour l'enregistrement d'un sensor."""
+
+    hostname: str
+    honeypot_type: str  # ia / classic
+    ip: str
+    profile_name: str | None = None
+
+
+class SensorRegisterOut(BaseModel):
+    """Réponse de l'enregistrement d'un sensor."""
+
+    sensor_id: str
+    token: str
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -171,6 +199,75 @@ def health_check() -> HealthResponse:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# Routes - Registration
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+@app.post("/register", response_model=SensorRegisterOut, tags=["Registration"])
+def register_sensor(sensor: SensorRegisterIn, db: Session = Depends(get_db)) -> SensorRegisterOut:
+    """
+    Enregistre un nouveau honeypot auprès du monitoring.
+
+    Génère un sensor_id unique au format: {uuid}-{ip}-{hostname}
+    et un token pour l'authentification future.
+
+    Si le honeypot est déjà enregistré (même ip + hostname), retourne les credentials existants.
+    """
+    # Vérifier si déjà enregistré
+    existing = (
+        db.query(Sensor).filter(Sensor.ip == sensor.ip, Sensor.hostname == sensor.hostname).first()
+    )
+
+    if existing:
+        # Mettre à jour last_seen
+        existing.last_seen = datetime.now(UTC).timestamp()
+        db.commit()
+        logger.info(f"Sensor reconnected: {existing.sensor_id}")
+        return SensorRegisterOut(sensor_id=existing.sensor_id, token=existing.token)
+
+    # Générer un nouvel enregistrement
+    sensor_uuid = str(uuid.uuid4())[:8]
+    sensor_id = f"{sensor_uuid}-{sensor.ip}-{sensor.hostname}"
+    token = secrets.token_urlsafe(32)
+
+    new_sensor = Sensor(
+        sensor_id=sensor_id,
+        uuid=sensor_uuid,
+        hostname=sensor.hostname,
+        ip=sensor.ip,
+        honeypot_type=sensor.honeypot_type,
+        profile_name=sensor.profile_name,
+        token=token,
+        registered_at=datetime.now(UTC).timestamp(),
+        last_seen=datetime.now(UTC).timestamp(),
+    )
+
+    db.add(new_sensor)
+    db.commit()
+
+    logger.info(f"New sensor registered: {sensor_id} (type={sensor.honeypot_type})")
+    return SensorRegisterOut(sensor_id=sensor_id, token=token)
+
+
+@app.get("/sensors", tags=["Registration"])
+def list_sensors(db: Session = Depends(get_db)) -> list[dict]:
+    """Liste tous les sensors enregistrés."""
+    sensors = db.query(Sensor).order_by(Sensor.registered_at.desc()).all()
+    return [
+        {
+            "sensor_id": s.sensor_id,
+            "hostname": s.hostname,
+            "ip": s.ip,
+            "honeypot_type": s.honeypot_type,
+            "profile_name": s.profile_name,
+            "registered_at": s.registered_at,
+            "last_seen": s.last_seen,
+        }
+        for s in sensors
+    ]
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # Routes - Pages
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -210,17 +307,27 @@ async def ingest(event: OtoriEventIn, db: Session = Depends(get_db)) -> dict:
         e.ts_epoch = datetime.now(UTC).timestamp()
 
     # ═══════════════════════════════════════════════════════════════════════════
-    # Enrichissement GeoIP
+    # Enrichissement GeoIP (use provided data or lookup)
     # ═══════════════════════════════════════════════════════════════════════════
-    if settings.GEOIP_ENABLED and event.src_ip and event.event_type == "connect":
-        geo = geoip_service.lookup(event.src_ip)
-        e.country_code = geo.country_code
-        e.country_name = geo.country_name
-        e.city = geo.city
-        e.latitude = geo.latitude
-        e.longitude = geo.longitude
-        e.asn = geo.asn
-        e.asn_org = geo.asn_org
+    if event.src_ip and event.event_type == "connect":
+        # Use provided geo data if available
+        if event.latitude is not None and event.longitude is not None:
+            e.country_code = event.country_code
+            e.country_name = event.country_name
+            e.city = event.city
+            e.latitude = event.latitude
+            e.longitude = event.longitude
+            e.asn_org = event.asn_org
+        # Otherwise, lookup via GeoIP service
+        elif settings.GEOIP_ENABLED:
+            geo = geoip_service.lookup(event.src_ip)
+            e.country_code = geo.country_code
+            e.country_name = geo.country_name
+            e.city = geo.city
+            e.latitude = geo.latitude
+            e.longitude = geo.longitude
+            e.asn = geo.asn
+            e.asn_org = geo.asn_org
 
     # ═══════════════════════════════════════════════════════════════════════════
     # Classification de commande
@@ -234,6 +341,15 @@ async def ingest(event: OtoriEventIn, db: Session = Depends(get_db)) -> dict:
     # Sauvegarder l'événement
     db.add(e)
     db.commit()
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # Mise à jour du last_seen du sensor
+    # ═══════════════════════════════════════════════════════════════════════════
+    if event.sensor:
+        sensor = db.query(Sensor).filter(Sensor.sensor_id == event.sensor).first()
+        if sensor:
+            sensor.last_seen = datetime.now(UTC).timestamp()
+            db.commit()
 
     # ═══════════════════════════════════════════════════════════════════════════
     # Mise à jour de la session (si analytics activé)
@@ -484,6 +600,358 @@ def get_session_detail(
             for e in events
         ],
         "commands": session.commands or [],
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Routes - Interactive Data (Cross-reference queries)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+@app.get("/commands/by-ip/{ip}", tags=["Interactive"])
+def get_commands_by_ip(
+    ip: str,
+    limit: int = 50,
+    db: Session = Depends(get_db),
+) -> list:
+    """Récupère toutes les commandes exécutées par une IP spécifique."""
+    events = (
+        db.query(Event)
+        .filter(Event.src_ip == ip, Event.event_type == "command")
+        .order_by(Event.ts_epoch.desc())
+        .limit(limit)
+        .all()
+    )
+
+    return [
+        {
+            "command": e.command,
+            "timestamp": e.timestamp,
+            "ts_epoch": e.ts_epoch,
+            "session_id": e.session_id,
+            "category": e.command_category,
+            "severity": e.command_severity,
+            "mitre_techniques": e.mitre_techniques,
+        }
+        for e in events
+    ]
+
+
+@app.get("/commands/search", tags=["Interactive"])
+def search_command(
+    q: str,
+    limit: int = 50,
+    db: Session = Depends(get_db),
+) -> dict:
+    """Recherche les IPs qui ont exécuté une commande spécifique."""
+
+    events = (
+        db.query(Event)
+        .filter(Event.event_type == "command", Event.command.contains(q))
+        .order_by(Event.ts_epoch.desc())
+        .limit(limit)
+        .all()
+    )
+
+    # Group by IP
+    ip_data = {}
+    for e in events:
+        if e.src_ip not in ip_data:
+            ip_data[e.src_ip] = {
+                "ip": e.src_ip,
+                "country_code": e.country_code,
+                "count": 0,
+                "first_seen": e.ts_epoch,
+                "last_seen": e.ts_epoch,
+                "executions": [],
+            }
+        ip_data[e.src_ip]["count"] += 1
+        ip_data[e.src_ip]["last_seen"] = max(ip_data[e.src_ip]["last_seen"], e.ts_epoch)
+        ip_data[e.src_ip]["first_seen"] = min(ip_data[e.src_ip]["first_seen"], e.ts_epoch)
+        if len(ip_data[e.src_ip]["executions"]) < 10:
+            ip_data[e.src_ip]["executions"].append(
+                {
+                    "command": e.command,
+                    "timestamp": e.timestamp,
+                    "session_id": e.session_id,
+                }
+            )
+
+    return {
+        "query": q,
+        "total_executions": len(events),
+        "unique_ips": len(ip_data),
+        "ips": sorted(ip_data.values(), key=lambda x: x["count"], reverse=True),
+    }
+
+
+@app.get("/auth/details", tags=["Interactive"])
+def get_auth_details(
+    auth_type: str = "all",  # success, failed, all
+    limit: int = 100,
+    db: Session = Depends(get_db),
+) -> list:
+    """Récupère les détails des événements d'authentification."""
+    query = db.query(Event)
+
+    if auth_type == "success":
+        query = query.filter(Event.event_type == "login_success")
+    elif auth_type == "failed":
+        query = query.filter(Event.event_type == "login_failed")
+    else:
+        query = query.filter(Event.event_type.in_(["login_success", "login_failed"]))
+
+    events = query.order_by(Event.ts_epoch.desc()).limit(limit).all()
+
+    return [
+        {
+            "timestamp": e.timestamp,
+            "ts_epoch": e.ts_epoch,
+            "event_type": e.event_type,
+            "src_ip": e.src_ip,
+            "country_code": e.country_code,
+            "country_name": e.country_name,
+            "username": e.username,
+            "password": e.password,
+            "session_id": e.session_id,
+            "honeypot_type": e.honeypot_type,
+        }
+        for e in events
+    ]
+
+
+@app.get("/sessions/by-country/{country_code}", tags=["Interactive"])
+def get_sessions_by_country(
+    country_code: str,
+    limit: int = 50,
+    db: Session = Depends(get_db),
+) -> list:
+    """Récupère les sessions provenant d'un pays spécifique."""
+    sessions = (
+        db.query(SessionModel)
+        .filter(SessionModel.country_code == country_code.upper())
+        .order_by(SessionModel.start_time.desc())
+        .limit(limit)
+        .all()
+    )
+
+    return [
+        {
+            "session_id": s.session_id,
+            "src_ip": s.src_ip,
+            "country_code": s.country_code,
+            "city": s.city,
+            "username": s.username,
+            "command_count": s.command_count,
+            "danger_score": s.danger_score,
+            "danger_level": s.danger_level,
+            "attacker_type": s.attacker_type,
+            "duration_sec": s.duration_sec,
+            "start_time": s.start_time,
+            "honeypot_type": s.honeypot_type,
+        }
+        for s in sessions
+    ]
+
+
+@app.get("/commands/by-category/{category}", tags=["Interactive"])
+def get_commands_by_category(
+    category: str,
+    limit: int = 50,
+    db: Session = Depends(get_db),
+) -> dict:
+    """Récupère les commandes d'une catégorie spécifique avec les IPs associées."""
+    events = (
+        db.query(Event)
+        .filter(Event.event_type == "command", Event.command_category == category)
+        .order_by(Event.ts_epoch.desc())
+        .limit(limit)
+        .all()
+    )
+
+    # Aggregate by command
+    cmd_data = {}
+    for e in events:
+        cmd = e.command[:100] if e.command else ""
+        if cmd not in cmd_data:
+            cmd_data[cmd] = {
+                "command": cmd,
+                "full_command": e.command,
+                "severity": e.command_severity,
+                "mitre_techniques": e.mitre_techniques or [],
+                "count": 0,
+                "ips": set(),
+            }
+        cmd_data[cmd]["count"] += 1
+        if e.src_ip:
+            cmd_data[cmd]["ips"].add(e.src_ip)
+
+    # Convert to list and sort
+    result = []
+    for cmd in sorted(cmd_data.values(), key=lambda x: x["count"], reverse=True):
+        cmd["ips"] = list(cmd["ips"])[:10]
+        cmd["unique_ips"] = len(cmd["ips"])
+        result.append(cmd)
+
+    return {
+        "category": category,
+        "total_commands": len(events),
+        "unique_commands": len(cmd_data),
+        "commands": result[:30],
+    }
+
+
+@app.get("/commands/by-severity/{severity}", tags=["Interactive"])
+def get_commands_by_severity(
+    severity: str,
+    limit: int = 50,
+    db: Session = Depends(get_db),
+) -> dict:
+    """Récupère les commandes d'une sévérité spécifique avec les IPs associées."""
+    events = (
+        db.query(Event)
+        .filter(Event.event_type == "command", Event.command_severity == severity)
+        .order_by(Event.ts_epoch.desc())
+        .limit(limit)
+        .all()
+    )
+
+    # Aggregate by command
+    cmd_data = {}
+    for e in events:
+        cmd = e.command[:100] if e.command else ""
+        if cmd not in cmd_data:
+            cmd_data[cmd] = {
+                "command": cmd,
+                "full_command": e.command,
+                "category": e.command_category,
+                "mitre_techniques": e.mitre_techniques or [],
+                "count": 0,
+                "ips": set(),
+            }
+        cmd_data[cmd]["count"] += 1
+        if e.src_ip:
+            cmd_data[cmd]["ips"].add(e.src_ip)
+
+    # Convert to list
+    result = []
+    for cmd in sorted(cmd_data.values(), key=lambda x: x["count"], reverse=True):
+        cmd["ips"] = list(cmd["ips"])[:10]
+        cmd["unique_ips"] = len(cmd["ips"])
+        result.append(cmd)
+
+    return {
+        "severity": severity,
+        "total_commands": len(events),
+        "unique_commands": len(cmd_data),
+        "commands": result[:30],
+    }
+
+
+@app.get("/ips/{ip}/details", tags=["Interactive"])
+def get_ip_full_details(
+    ip: str,
+    db: Session = Depends(get_db),
+) -> dict:
+    """Récupère tous les détails d'une IP: sessions, commandes, auth, timeline."""
+    # Get all sessions for this IP
+    sessions = (
+        db.query(SessionModel)
+        .filter(SessionModel.src_ip == ip)
+        .order_by(SessionModel.start_time.desc())
+        .all()
+    )
+
+    # Get all events for this IP
+    events = (
+        db.query(Event).filter(Event.src_ip == ip).order_by(Event.ts_epoch.desc()).limit(200).all()
+    )
+
+    # Aggregate commands
+    cmd_counts = {}
+    for e in events:
+        if e.event_type == "command" and e.command:
+            cmd = e.command[:80]
+            if cmd not in cmd_counts:
+                cmd_counts[cmd] = {
+                    "command": cmd,
+                    "full": e.command,
+                    "category": e.command_category,
+                    "severity": e.command_severity,
+                    "count": 0,
+                }
+            cmd_counts[cmd]["count"] += 1
+
+    # Auth events
+    auth_events = [
+        {
+            "timestamp": e.timestamp,
+            "event_type": e.event_type,
+            "username": e.username,
+            "password": e.password,
+            "session_id": e.session_id,
+        }
+        for e in events
+        if e.event_type in ("login_success", "login_failed")
+    ]
+
+    # First event for geo info
+    first_connect = next((e for e in reversed(events) if e.event_type == "connect"), None)
+
+    return {
+        "ip": ip,
+        "geo": {
+            "country_code": first_connect.country_code if first_connect else None,
+            "country_name": first_connect.country_name if first_connect else None,
+            "city": first_connect.city if first_connect else None,
+            "asn_org": first_connect.asn_org if first_connect else None,
+        },
+        "stats": {
+            "total_sessions": len(sessions),
+            "total_commands": sum(1 for e in events if e.event_type == "command"),
+            "total_auth_attempts": len(auth_events),
+            "successful_logins": sum(1 for e in auth_events if e["event_type"] == "login_success"),
+            "unique_usernames": len({e["username"] for e in auth_events if e["username"]}),
+            "avg_danger_score": (
+                round(sum(s.danger_score or 0 for s in sessions) / len(sessions), 1)
+                if sessions
+                else 0
+            ),
+        },
+        "danger_distribution": {
+            "critical": sum(1 for s in sessions if s.danger_level == "critical"),
+            "high": sum(1 for s in sessions if s.danger_level == "high"),
+            "medium": sum(1 for s in sessions if s.danger_level == "medium"),
+            "low": sum(1 for s in sessions if s.danger_level == "low"),
+            "minimal": sum(1 for s in sessions if s.danger_level == "minimal"),
+        },
+        "sessions": [
+            {
+                "session_id": s.session_id,
+                "username": s.username,
+                "command_count": s.command_count,
+                "danger_score": s.danger_score,
+                "danger_level": s.danger_level,
+                "attacker_type": s.attacker_type,
+                "duration_sec": s.duration_sec,
+                "start_time": s.start_time,
+                "honeypot_type": s.honeypot_type,
+                "categories_seen": s.categories_seen,
+            }
+            for s in sessions[:20]
+        ],
+        "top_commands": sorted(cmd_counts.values(), key=lambda x: x["count"], reverse=True)[:20],
+        "auth_events": auth_events[:30],
+        "timeline": [
+            {
+                "timestamp": e.timestamp,
+                "ts_epoch": e.ts_epoch,
+                "event_type": e.event_type,
+                "command": e.command[:60] if e.command else None,
+                "username": e.username,
+            }
+            for e in events[:50]
+        ],
     }
 
 
